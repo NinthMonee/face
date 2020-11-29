@@ -529,10 +529,283 @@ react 分为基础模块、渲染模块、核心模块。
 
 
 
-React初始化流程
+`React初始化流程`
 
 JSX会经过babel编译成React.createElmenet递归调用的表达式，React，createElmenet render函数被调用的时候执行，换句话说，当render函数被调用的时候，会返回一个element(组成虚拟dom树的节点)
 
-elemenet类型为对象时飞机位原生DOM(调用ReactDOMCompoent)和自定义(ReactComponetsietComponent)和空节点(ReactDOMEmptyComputer)
+elemenet类型为对象时分为原生DOM(调用ReactDOMCompoent)和自定义(ReactComponetsietComponent)和空节点(ReactDOMEmptyComputer)
 
 上述四种常见的方法mountComputer用户创建组件，而updateComponent用户用户更新组件，而我们自定义组件的生命周期以及render函数都是在这些私有类的方法里被调用的。
+
+其中 ReactDOMComponent 的 mountComponent 方法会自己操作浏览器 DOM 元素。而 ReactCompositeComponentWrapper 的则是实例化自定义组件，最后是通过递归调用到 ReactDOMComponent 的 mountComponent 方法来得到真实 DOM。
+
+自定义元素节点 挂载的过程：
+
+1. 得到实例化APP对象instance
+
+2. renderedElment得到child
+
+3. 初始化renderedElment得到child
+
+4. child.mountComponent(container)
+
+    在第一步得到instance对象之后，就会去看instance.componentWillMount 是否有被定义，有的话调用，而在整个渲染过程结束之后调用componentDidMount
+
+stState过程
+
+- newState存入pendingState队列
+- 根据一个变量isBatcingUpdate判断放到队列中还是直接更新state，也就是是直接去放到dirtyComponents中，还是遍历dirtyConponents,调用updateComponent，去更新state或者props
+- isBatchingUpdate默认是false，React在调用事件处理函数之前就会调用batchUpdates改变值，以此让state不会立即更新
+
+bacthedUpdate是通过事物的方式去保证一次完整的更新
+
+更新过程中自定义组件的update流程：
+
+​	1、计算出nextState
+
+​	2、render()得到nextRenderElement
+
+​    3、与preRenderElement进行diff比较 更新节点
+
+
+
+相关生命周期：
+
+shouldComponentUpdate在第一步调用得到nextState之后调用
+
+当shouldComponentUpdate返回true的时候，会先调用componentWIllUpdate，在整个更新过程结束之后调用componentDidUpdate
+
+ReactDOMComponent 的 updateComponent 流程就是直接更新浏览器 DOM 元素。
+
+
+
+`React优化`
+
+优化的方向有两个：一个就是减少render次数、也就是减少diff计算
+
+还有就是减少每一次计算的量，主要是减少重复计算。
+
+对于函数式组件组件来说，每次render都会重新从头开始执行函数调用，
+
+在类组件中主要使用shouldComponentUPdate生命周期和PureComponent去减少render次数。
+
+函数组件中主要使用：
+
+`React.memo:`等同于PurComponent，用它包裹子组件，当父组件需要重新渲染render的时候，如果传给自己的props不变，就不会重新render。memo可以添加第二个参数，是一个函数，参数为前后props，返回true的时候不会重新render
+
+`useCallback:`应用场景是父组件向子组件传递方法，当父组件重新渲染时，代码都会重新执行。所以就算子铸造件包裹了React.memo，也会重新渲染，可以通过useCallback进行记忆传递的方法，并将记忆的方法传递给子组件
+
+`useMemo:`如果在组件类有个变量的值，需要大量的计算才可以德诚。因为函数组件重构渲染就会重新执行代码，所以该变量的值也会重新计算，就可以useMemo做计算结果缓存。
+
+`Fiber`
+
+其作用是会在浏览器空闲时期一次调用函数，这样就可以在主事件循环中执行后台或低优先级的任务，而且不会对像动画和用户交互这样延迟触发而且关键的事情产生影响。函数一般会按先进先调用的顺序执行。除非函数在浏览器调用它之前就到了他的超时时间。
+
+fiber借助单链表结构讲diff算法的递归遍历变为循环遍历
+
+当执行setState()或首次render时，进入工作循环，循环体中处理的单元为Fiber Node ，即是拆分任务的最小单位，从耿介点开始，自顶向下构造workInProgress tree
+
+beginWork主要做的事情时自顶向下生成所有的Fiber Node 并标记Diff
+
+completeUnitOfWork当没有子节点，开始遍历兄弟节点作为下一个处理单元，处理完兄弟节点开始向上回溯，直到再次回去根节点为止，将收集向上回溯过程中的所有diff，拿到diff后开始进入commit阶段。
+
+构建workInProgress tree 的过程就是diff的过程，通过requestIdleCallback来调度执行医嘱任务，每完成一个任务后回来看看有没有更紧急的，把时间控制权交还给主线程，直到下一次requestIdleCallback回调再继续构建workInProgress tree
+
+`requestIdleCallback`的兼容方案
+
+需要原因：兼容性不好，目前只能一秒调用回调函数20次
+
+因为diff的过程需要多次间隔调用，所以可以借助requestAnimationFrame，它回调方法会在每次重绘前执行，另外它还存在一个缺点，页面处于后台时该回调函数不会执行，所以需要setTimeout进行补救，两个定时器内部互相取消对方。
+
+在一帧当中，浏览器可能会响应用户的交互事件，执行js，进行渲染的一系列计算绘制，diff就是在执行js这个过程中。如果在一帧范围内没有执行完毕就会出现掉帧，影响用户体验，所以就需要在当下存在空闲时间我们才去执行任务。否则就等到下一帧 的空闲时间继续运行。
+
+是否有时间继续diff是通过计算剩余时间来判断，金安达来说就是鸡舍当前时间为5000，浏览器支持60帧，那么一帧近似16毫秒，那么就会计算出下一帧时间为5016.得出下一帧时间以后，我们只需对比当前时间是否小于下一帧时间即可，这样就能清清楚楚的知道是否含有空闲时间去执行任务。
+
+在事件循环中，渲染以后只有宏任务是最先会被执行的，所以选择优先级高的MessageChannel
+
+调度的时候先判断任务是否过期，没有过期先计算下一帧时间(通过reequestAnimatonFrame)再调用port。postMessage(undefined)(过期直接调用)，这样渲染之后channel.port1.onmessage就会执行(任务没过期就要对比当前时间和下一帧时间，还有时间就执行任务，没有就看一帧是否能执行任务，过期则直接执行)
+
+
+
+`事件机制`
+
+reatc事件并没有绑定在真实dom节点上，而是通过事件代理，在最外层的document上对事件进行统一分发，原生事件在目标阶段执行，React在冒泡阶段执行。
+
+组件挂载更新时，给document注册原生事件回调为dispacthEvnet(统一的事件分发机制)
+
+事件初始化，添加到listenerBank
+
+触发事件的事件时：
+
+- 触发document注册原生事件的回调dispacthEvent
+- 获取到触发这个事件最深一级的元素
+- 遍历整个元素的所有父元素，一次对每一级元素进行处理
+- 构造合成事件
+- 将每一级的合成事件存储在eventQueue事件队列中
+- 遍历eventQueue
+- 通过isPropagationStopped判断当前时间是否执行了阻止冒泡方法
+- 如果阻止了冒泡，停止遍历，否则通过excuteDispacth执行合成事件
+- 释放处理完成的事件
+
+
+
+### diff算法
+
+#### React15
+
+基于两个假设：
+
+- 两个相同的组件产生类似的DOM结构，不同组件产生不同DOM结构
+- 对于同一层次的一组子节点，他们可以通过唯一的id区分
+
+tree diff
+
+主要的规则就是跨层级的节点移动不会考虑复用，直接新建再删除
+
+注意：在开发组件时，保持稳定的DOM结构会有助于性能的提升。例如，可以通过CSS隐藏或显示节点，而不是真的移除或添加DOM节点
+
+对于不同的节点类型，react会基于第一条假设，直接删去旧的节点，新建一个新的节点
+
+component diff
+
+如果是同一个类型的组件，根据新节点的props去更新原来根节点的组件实例，触发一个更新的过程，按照原策略继续比较virtual DOM tree
+
+如果不是，则将该组件判断为dirty component 从而替换这个组件下的所有子节点
+
+element diff
+
+当节点处于同一层级时，React diff提供了三种节点操作，分别是插入、移动、删除。
+
+再没有key的情况下对比节点的时候，是一个个按着顺序对比的，比如以下这种情况在没有key的情况下会删除Test3 新建Test2  新建Test3
+
+```js
+<!-- before -->
+<div>
+  <Test1></Test1>
+  <Test3></Test3>
+</div>
+<!-- after -->
+<div>
+  <Test1></Test1>
+  <Test2></Test2>
+  <Test3></Test3>
+</div>
+```
+
+`react-router原理`
+
+hash路由：核心是监听了load和onHashChange事件，在页面刷新或者URL hash改变时渲染不同的页面组件，history API路由：核心是通过replaceState和pushState去改变页面URL ，通过popState事件监听history对象改变的时候改变页面
+
+`react-redux`
+
+Redux 是JavaScript状态容器，能提供可预测话的状态管理，需要它的原因是因为前段有大量的无规律的交互和异步操作，而且随着代码量越来越大，我们要维护的状态也越来越多，它能提供的就是让每个State变化可预测，动作与状态统一管理
+
+`connent原理`
+
+connect方法是一个高阶组件，主要的两个参数都是函数，命名为mapStateToProps和mapDispacthToProps，内部原理获取store添加订阅后，将state和dispacth分别传入上面 的两个方法，返回需要的state和改变state的方法添加到UI组件的props上
+
+前提是在应用顶层已经适用prodiver组件，并应用初始化创建store
+
+
+
+`中间件原理`
+
+中间件可以说是dispacth的增强或者替换
+
+applyMiddleware(middleware)返回的是一个函数，createStore内部会使用这个函数的调用结果(参数为createStore)创建store
+
+
+
+
+
+
+
+### react性能优化的方法
+
+- **减少计算的量**。 -> 对应到 React 中就是**减少渲染的节点 或者 降低组件渲染的复杂度**
+- **利用缓存**。-> 对应到 React 中就是**如何避免重新渲染，利用函数式编程的 memo 方式来避免组件重新渲染**
+- **精确重新计算的范围**。 对应到 React 中就是**绑定组件和状态关系, 精确判断更新的'时机'和'范围'. 只重新渲染'脏'的组件，或者说降低渲染范围**
+
+`减少渲染的节点/降低渲染计算量(复杂度)`
+
+- 不要在渲染函数都进行不必要的计算
+
+- 减少不必要的嵌套
+
+       我们公司是重度的style-componemt使用者，其实吧大部分情况下我们都不需要这个东西，比如纯静态的样式规则，以及需要重度性能优化的场景
+
+    除了性能问题，另外一个困扰我们的是它带来的节点嵌套地狱。所以我们应该理性地选择一些工具
+
+- 虚拟列表
+
+      虚拟列表是常见的‘长列表'和'复杂组件树'优化方式，它优化的本质就是减少渲染的节点。虚拟列表只渲染当前视口可见元素
+
+    - 无限滚动列表，grid, 表格，下拉列表，spreadsheets
+    - 无限切换的日历或轮播图
+    - 大数据量或无限嵌套的树
+    - 聊天窗，数据流(feed), 时间轴
+    - 等等
+
+    `相关组件方案:`
+
+    - [react-virtualized](https://link.zhihu.com/?target=https%3A//github.com/bvaughn/react-virtualized)
+    - [react-window](https://link.zhihu.com/?target=https%3A//github.com/bvaughn/react-window) 更轻量的 react-virtualized, 
+
+- 惰性渲染
+
+    **惰性渲染的初衷本质上和虚表一样，也就是说我们只在必要时才去渲染对应的节点**。
+
+    举个典型的例子，我们常用 Tab 组件，我们没有必要一开始就将所有 Tab 的 panel 都渲染出来，而是等到该 Tab 被激活时才去惰性渲染。
+
+    还有很多场景会用到惰性渲染，例如树形选择器，模态弹窗，下拉列表，折叠组件等等。
+
+- 选择合适的样式方案
+
+`避免重新渲染`
+
+减少不必要的重新渲染也是 React 组件性能优化的重要方向. 为了避免不必要的组件重新渲染需要在做到两点:
+
+1. 保证组件纯粹性。即控制组件的副作用，如果组件有副作用则无法安全地缓存渲染结果
+2. 通过`shouldComponentUpdate`生命周期函数来比对 state 和 props, 确定是否要重新渲染。对于函数组件可以使用`React.memo`包装
+
+- 简化props
+
+    **① 如果一个组件的 props 太复杂一般意味着这个组件已经违背了‘单一职责’，首先应该尝试对组件进行拆解**.
+
+     **② 另外复杂的 props 也会变得难以维护, 比如会影响`shallowCompare`效率, 还会让组件的变动变得难以预测和调试**.
+
+    **简化的 props 更容易理解, 且可以提高组件缓存的命中率**
+
+- 不变的事件处理器、
+
+    ①**避免使用箭头函数形式的事件处理器**, 例如:
+
+- 不可变数据
+
+- 简化state
+
+- 使用recompose精细化比对
+
+`精细化渲染`
+
+响应式数据的精细化渲染
+
+不要滥用Context
+
+
+
+
+
+### 为什么react要自定义一套事件系统？
+
+- 抹平浏览器之间的兼容性差异
+
+    这是最原始的动机，它还会通过其他事件来模拟一些低版本不兼容的事件，这才是合成的本来意思
+
+- 事件合成就是事件自定义
+
+    事件合成除了处理兼容性问题之外，还可以用来自定义高级事件，比较典型的是React的onChange事件，它为表单元素定义了统一的值变动事件。另外第三方也可以通过React事件插件机制来合成自定义事件。
+
+- 抽象跨平台机制  和VDOM的意义差不多，VDOM抽象了跨平台的渲染方式，那么对应SyntheticEvent目的也是想提供一个抽象的跨平台机制
+- React打算做更多的优化  比如利用事件委托机制，大部分事件最终绑定到了document,而不是DOM节点本身，这样简化了DOM事件处理逻辑，减少了内存开销，但这也意味着，React需要更多自己模拟一套事件冒泡的机制
+- React打算干预事件分发机制  ：V16引入Fiber架构，React为了优化用户的交互体验，会干预事件的分发，不同类型的事件有不同的优先级，比如高优先级的事件可以中断渲染，让用户代码可以及时的响应用户交互
